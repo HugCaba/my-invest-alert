@@ -2,7 +2,7 @@ name: Daily Invest Alert
 
 on:
   schedule:
-    - cron: "0 1 * * *"   # 08:00 เวลาไทย (UTC+7)
+    - cron: "0 1 * * *"   # 08:00 เวลาไทย
   workflow_dispatch:
 
 jobs:
