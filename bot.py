@@ -6,8 +6,8 @@ from datetime import datetime
 # =========================
 # ENV จาก GitHub Secrets
 # =========================
-BOT_TOKEN = os.getenv("8444957235:AAF9FDV3cx_p5H1RRrOXNI7xwwdSMjZoOJg")
-CHAT_ID = os.getenv("6744596307")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
 
 if not BOT_TOKEN or not CHAT_ID:
     raise ValueError("Missing BOT_TOKEN or CHAT_ID")
