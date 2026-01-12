@@ -1,8 +1,8 @@
-name: Daily Invest Alert
+name: Invest Alert Every 3 Hours
 
 on:
   schedule:
-    - cron: "0 1 * * *"   # 08:00 เวลาไทย
+    - cron: "0 */3 * * *"   # ทุก 3 ชั่วโมง (UTC)
   workflow_dispatch:
 
 jobs:
