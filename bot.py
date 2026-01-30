@@ -27,17 +27,25 @@ def send_telegram(msg):
 
 def get_price(symbol):
     data = yf.download(symbol, period="2d", progress=False)
-    if len(data) < 2:
+
+    if data is None or len(data) < 2:
         return None
 
-    today = float(data["Close"].iloc[-1])
-    yesterday = float(data["Close"].iloc[-2])
-    pct_today = (today - yesterday) / yesterday * 100
+    # รองรับทั้ง single และ multi column
+    close_today = data["Close"].iloc[-1]
+    close_yesterday = data["Close"].iloc[-2]
 
+    if hasattr(close_today, "values"):
+        today = float(close_today.values[0])
+        yesterday = float(close_yesterday.values[0])
+    else:
+        today = float(close_today)
+        yesterday = float(close_yesterday)
+
+    pct_today = (today - yesterday) / yesterday * 100
     return today, pct_today
 
 def get_status(pct):
-    pct = float(pct)
     if pct > 1:
         return "🟢 แข็งแรง"
     elif pct > 0:
@@ -48,7 +56,6 @@ def get_status(pct):
         return "🔴 อ่อนแรง"
 
 def get_action(pct):
-    pct = float(pct)
     if pct > 1:
         return "ไม่ควรไล่ซื้อ"
     elif pct > 0:
