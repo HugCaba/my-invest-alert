@@ -29,12 +29,15 @@ def get_price(symbol):
     data = yf.download(symbol, period="2d", progress=False)
     if len(data) < 2:
         return None
-    today = data["Close"].iloc[-1].item()
-    yesterday = data["Close"].iloc[-2].item()
+
+    today = float(data["Close"].iloc[-1])
+    yesterday = float(data["Close"].iloc[-2])
     pct_today = (today - yesterday) / yesterday * 100
+
     return today, pct_today
 
 def get_status(pct):
+    pct = float(pct)
     if pct > 1:
         return "🟢 แข็งแรง"
     elif pct > 0:
@@ -45,6 +48,7 @@ def get_status(pct):
         return "🔴 อ่อนแรง"
 
 def get_action(pct):
+    pct = float(pct)
     if pct > 1:
         return "ไม่ควรไล่ซื้อ"
     elif pct > 0:
@@ -73,12 +77,30 @@ def run_market_mode():
             price, pct_today = res
             status = get_status(pct_today)
             action = get_action(pct_today)
-            msg += f"{name} | {price:.2f} | วันนี้ {pct_today:.2f}% | {status} | แนะนำ: {action}\n"
+            msg += (
+                f"{name} | {price:.2f} | "
+                f"วันนี้ {pct_today:.2f}% | "
+                f"{status} | แนะนำ: {action}\n"
+            )
+
+    msg += "\n📊 Portfolio Monitor\n"
+
+    for name, symbol in my_portfolio.items():
+        res = get_price(symbol)
+        if res:
+            price, pct_today = res
+            status = get_status(pct_today)
+            action = get_action(pct_today)
+            msg += (
+                f"{name} | {price:.2f} | "
+                f"วันนี้ {pct_today:.2f}% | "
+                f"{status} | แนะนำ: {action}\n"
+            )
 
     send_telegram(msg)
 
 # =========================
-# DCA MODE (AI Advisor)
+# DCA MODE (AI)
 # =========================
 def run_dca_mode():
     from openai import OpenAI
@@ -96,7 +118,7 @@ def run_dca_mode():
         res = get_price(symbol)
         if res:
             price, pct_today = res
-            market_data += f"{name}: {pct_today:.2f}%\n"
+            market_data += f"{name}: วันนี้ {pct_today:.2f}%\n"
 
     portfolio_text = ""
     for name in my_portfolio.keys():
@@ -124,4 +146,24 @@ def run_dca_mode():
 """
 
     response = client.responses.create(
-        model="gpt-4.1-m
+        model="gpt-4.1-mini",
+        input=prompt
+    )
+
+    ai_text = response.output_text
+
+    msg = (
+        f"🤖 DCA วันนี้ (Top 3)\n"
+        f"{datetime.now().strftime('%d/%m/%Y %H:%M')}\n\n"
+        f"{ai_text}"
+    )
+
+    send_telegram(msg)
+
+# ===== RUN =====
+if mode == "market":
+    run_market_mode()
+elif mode == "dca":
+    run_dca_mode()
+else:
+    send_telegram("❌ ไม่รู้จักโหมดที่เรียกใช้")
