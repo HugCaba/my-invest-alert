@@ -1,161 +1,172 @@
+import sys
 import os
 import requests
 import yfinance as yf
 from datetime import datetime
-from openai import OpenAI
 
-# =========================
-# Secrets
-# =========================
+# ===== Telegram ENV =====
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHAT_ID = os.environ["CHAT_ID"]
-client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 
-# =========================
-# พอร์ตของคุณ (จริง)
-# =========================
-my_portfolio_value = {
-    "GLD": 31589,
-    "QCOM": 1949,
-    "BUG": 987,
-    "B-INNOTECH": 11522,
-    "K-US500X": 1500
+# ===== Mode =====
+mode = sys.argv[1] if len(sys.argv) > 1 else "market"
+
+# ===== พอร์ตของคุณ =====
+my_portfolio = {
+    "GLD": "GLD",
+    "B-INNOTECH": "B-INNOTECH.BK",
+    "K-US500X": "K-US500X.BK",
+    "QCOM": "QCOM",
+    "BUG": "BUG"
 }
 
-# =========================
-# Universe ตลาด
-# =========================
-assets = [
-    ("BTC-USD", "Bitcoin", "BTC/USD"),
-    ("QQQ", "Nasdaq", "NASDAQ"),
-    ("SPY", "S&P 500", "US500"),
-    ("GLD", "SPDR Gold Trust", "GLD"),
-]
+# ===== Helper =====
+def send_telegram(msg):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    requests.post(url, data={"chat_id": CHAT_ID, "text": msg})
 
-def get_data(symbol):
-    data = yf.download(symbol, period="2d", interval="1h", progress=False)
+def get_price(symbol):
+    data = yf.download(symbol, period="2d", progress=False)
     if len(data) < 2:
         return None
+    today = data["Close"].iloc[-1]
+    yesterday = data["Close"].iloc[-2]
+    pct_today = (today - yesterday) / yesterday * 100
+    return today, pct_today
 
-    now_price = data["Close"].iloc[-1].item()
-    yesterday_close = data["Close"].iloc[0].item()
-    today_data = data[data.index.date == data.index[-1].date()]
-    today_open = today_data["Open"].iloc[0].item()
+def get_status(pct):
+    if pct > 1:
+        return "🟢 แข็งแรง"
+    elif pct > 0:
+        return "🟡 บวกเล็กน้อย"
+    elif pct > -1:
+        return "🟠 อ่อนตัว"
+    else:
+        return "🔴 อ่อนแรง"
 
-    pct_y = (now_price - yesterday_close) / yesterday_close * 100
-    pct_t = (now_price - today_open) / today_open * 100
-
-    hist = yf.download(symbol, period="1y", progress=False)
-    high_1y = hist["Close"].max().item()
-    drawdown = (now_price - high_1y) / high_1y * 100
-
-    return now_price, pct_y, pct_t, drawdown
-
-def score_asset(drawdown, pct_today, portfolio_weight):
-    score = 0
-    score += abs(drawdown) * 1.5
-    if pct_today < 0:
-        score += abs(pct_today) * 2
-    score += (1 / (portfolio_weight + 0.1)) * 5
-    return score
-
-# =========================
-# วิเคราะห์ตลาด
-# =========================
-market = []
-total_portfolio = sum(my_portfolio_value.values())
-
-for symbol, name, code in assets:
-    res = get_data(symbol)
-    if res:
-        price, pct_y, pct_t, drawdown = res
-        port_value = my_portfolio_value.get(symbol, 0)
-        port_weight = port_value / total_portfolio
-        score = score_asset(drawdown, pct_t, port_weight)
-
-        market.append({
-            "symbol": symbol,
-            "name": name,
-            "code": code,
-            "price": price,
-            "pct_y": pct_y,
-            "pct_t": pct_t,
-            "drawdown": drawdown,
-            "score": score
-        })
-
-top3 = sorted(market, key=lambda x: x["score"], reverse=True)[:3]
-total_score = sum(x["score"] for x in top3)
-
-top3_text = ""
-for i, x in enumerate(top3, 1):
-    top3_text += (
-        f"#{i} {x['name']} ({x['code']}) | "
-        f"ราคา {x['price']:.2f} | "
-        f"เมื่อวาน {x['pct_y']:+.2f}% | "
-        f"วันนี้ {x['pct_t']:+.2f}% | "
-        f"ย่อจากจุดสูงสุด {x['drawdown']:.2f}%\n"
-    )
-
-budget = 500
-budget_text = ""
-for x in top3:
-    portion = budget * x["score"] / total_score
-    budget_text += f"- {x['name']}: {portion:.0f} บาท\n"
-
-portfolio_text = ""
-for k, v in my_portfolio_value.items():
-    portfolio_text += f"- {k}: {v} บาท\n"
-
-market_text = ""
-for x in market:
-    market_text += (
-        f"{x['name']} | ราคา {x['price']:.2f} | "
-        f"วันนี้ {x['pct_t']:+.2f}% | "
-        f"ย่อจากจุดสูงสุด {x['drawdown']:.2f}%\n"
-    )
+def get_action(pct):
+    if pct > 1:
+        return "ไม่ควรไล่ซื้อ"
+    elif pct > 0:
+        return "ถือไว้"
+    elif pct > -1:
+        return "ปล่อยไว้ก่อน"
+    else:
+        return "เหมาะกับการ DCA เพิ่ม"
 
 # =========================
-# AI ใหม่ (ไม่พังแล้ว)
+# MARKET MODE
 # =========================
-def ai_analyze():
+def run_market_mode():
+    market_assets = {
+        "S&P500": "^GSPC",
+        "Nasdaq": "^IXIC",
+        "Bitcoin": "BTC-USD",
+        "Gold": "GLD"
+    }
+
+    market_cache = {}
+
+    msg = f"⏰ Market Update {datetime.now().strftime('%H:%M')}\n\n"
+
+    # --- Market ---
+    for name, symbol in market_assets.items():
+        res = get_price(symbol)
+        if res is None:
+            continue
+        price, pct_today = res
+        status = get_status(pct_today)
+        action = get_action(pct_today)
+
+        market_cache[symbol] = (price, pct_today, status, action)
+
+        msg += (
+            f"{name} | {price:.2f} | "
+            f"วันนี้ {pct_today:.2f}% | "
+            f"{status} | แนะนำ: {action}\n"
+        )
+
+    # --- Portfolio ---
+    msg += "\n📊 Portfolio Monitor\n"
+
+    for name, symbol in my_portfolio.items():
+        if symbol in market_cache:
+            price, pct_today, status, action = market_cache[symbol]
+        else:
+            res = get_price(symbol)
+            if res is None:
+                continue
+            price, pct_today = res
+            status = get_status(pct_today)
+            action = get_action(pct_today)
+
+        msg += (
+            f"{name} | {price:.2f} | "
+            f"วันนี้ {pct_today:.2f}% | "
+            f"{status} | แนะนำ: {action}\n"
+        )
+
+    send_telegram(msg)
+
+# =========================
+# DCA MODE (12:30 ใช้ AI)
+# =========================
+def run_dca_mode():
+    from openai import OpenAI
+    client = OpenAI()
+
+    assets = {
+        "S&P500": "^GSPC",
+        "Nasdaq": "^IXIC",
+        "Bitcoin": "BTC-USD",
+        "Gold": "GLD"
+    }
+
+    market_data = ""
+    for name, symbol in assets.items():
+        res = get_price(symbol)
+        if res:
+            price, pct_today = res
+            market_data += f"{name}: วันนี้ {pct_today:.2f}%\n"
+
+    portfolio_text = ""
+    for name in my_portfolio.keys():
+        portfolio_text += f"{name}\n"
+
     prompt = f"""
-คุณเป็นผู้ช่วยวิเคราะห์การลงทุนส่วนตัว
+คุณคือ AI ผู้ช่วยวางแผนลงทุนแบบ DCA
 
-ข้อมูลตลาด:
-{market_text}
-
-Top 3 วันนี้:
-{top3_text}
-
-งบประมาณวันนี้:
-{budget_text}
+ข้อมูลตลาดวันนี้:
+{market_data}
 
 พอร์ตของฉัน:
 {portfolio_text}
 
-ช่วยเขียนข้อความสำหรับ Telegram:
-1. บอกว่าวันนี้ควรลงอะไร
-2. บอกว่างบควรแบ่งอย่างไร
-3. สรุปภาพรวมตลาด + คำเตือน
+งบวันนี้ 100 บาท
+ช่วยจัดอันดับ Top 3 ว่าควรลงอะไร
+และแนะนำจำนวนเงินแต่ละตัว
+พร้อมเหตุผลสั้น ๆ
 """
+
     response = client.responses.create(
         model="gpt-4.1-mini",
         input=prompt
     )
-    return response.output_text
 
-ai_text = ai_analyze()
+    ai_text = response.output_text
 
-now = datetime.now().strftime("%d/%m/%Y 12:30")
-message = f"""🤖 DCA วันนี้ (Top 3)
-{now}
+    msg = (
+        f"🤖 DCA วันนี้ (Top 3)\n"
+        f"{datetime.now().strftime('%d/%m/%Y %H:%M')}\n\n"
+        f"{ai_text}"
+    )
 
-{ai_text}
-"""
+    send_telegram(msg)
 
-url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-requests.post(
-    url,
-    data={"chat_id": CHAT_ID, "text": message}
-)
+# ===== RUN =====
+if mode == "market":
+    run_market_mode()
+elif mode == "dca":
+    run_dca_mode()
+else:
+    send_telegram("❌ ไม่รู้จักโหมดที่เรียกใช้")
