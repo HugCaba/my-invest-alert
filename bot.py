@@ -1,41 +1,35 @@
 import os
-import sys
 import requests
 import yfinance as yf
 from datetime import datetime
+import openai
 
-MODE = sys.argv[1] if len(sys.argv) > 1 else "market"
-
+# =========================
+# Secrets
+# =========================
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHAT_ID = os.environ["CHAT_ID"]
+openai.api_key = os.environ["OPENAI_API_KEY"]
 
 # =========================
-# กองทุนไทย (ใส่มือวันละครั้ง)
+# พอร์ตของคุณ (จากรูปจริง)
 # =========================
-thai_funds = {
-    "B-INNOTECH": 11.52,
-    "K-US500X": 1.50
+my_portfolio_value = {
+    "GLD": 31589,
+    "QCOM": 1949,
+    "BUG": 987,
+    "B-INNOTECH": 11522,
+    "K-US500X": 1500
 }
 
 # =========================
-# พอร์ตของคุณ
+# Universe ตลาด
 # =========================
-my_portfolio = {
-    "GLD": {"name": "SPDR Gold Trust", "type": "api"},
-    "QCOM": {"name": "Qualcomm", "type": "api"},
-    "BUG": {"name": "Global X Cybersecurity ETF", "type": "api"},
-    "B-INNOTECH": {"name": "B-INNOTECH HRMF", "type": "thai"},
-    "K-US500X": {"name": "K-US500X-A", "type": "thai"}
-}
-
-# =========================
-# ตลาดรวม
-# =========================
-market_assets = [
-    ("SPY", "S&P 500", "US500"),
-    ("QQQ", "Nasdaq", "NASDAQ"),
-    ("GLD", "SPDR Gold Trust", "GLD"),
+assets = [
     ("BTC-USD", "Bitcoin", "BTC/USD"),
+    ("QQQ", "Nasdaq", "NASDAQ"),
+    ("SPY", "S&P 500", "US500"),
+    ("GLD", "SPDR Gold Trust", "GLD"),
 ]
 
 # =========================
@@ -46,7 +40,6 @@ def get_data(symbol):
 
     now_price = data["Close"].iloc[-1].item()
     yesterday_close = data["Close"].iloc[0].item()
-
     today_data = data[data.index.date == data.index[-1].date()]
     today_open = today_data["Open"].iloc[0].item()
 
@@ -59,115 +52,123 @@ def get_data(symbol):
 
     return now_price, pct_y, pct_t, drawdown
 
-def get_status(pct):
-    if pct > 1:
-        return "🟢 ปกติ"
-    elif pct < -1:
-        return "🔴 อ่อนแรง"
-    else:
-        return "🟡 แกว่งตัว"
-
-def get_advice(drawdown):
-    if drawdown < -10:
-        return "ควรลงเพิ่ม"
-    elif drawdown < -5:
-        return "รอได้"
-    else:
-        return "ยังไม่ควรลง"
+def score_asset(drawdown, pct_today, portfolio_weight):
+    score = 0
+    score += abs(drawdown) * 1.5
+    if pct_today < 0:
+        score += abs(pct_today) * 2
+    score += (1 / (portfolio_weight + 0.1)) * 5
+    return score
 
 # =========================
-# MODE: Market Update
+# วิเคราะห์ตลาด
 # =========================
-if MODE == "market":
-    now = datetime.now().strftime("%H:%M")
-    message = f"📊 Market Update + My Portfolio (Hybrid)\n{now}\n\n"
+market = []
+total_portfolio = sum(my_portfolio_value.values())
 
-    message += "🌍 ตลาดรวม\n"
-    for symbol, name, code in market_assets:
-        res = get_data(symbol)
-        if res:
-            price, pct_y, pct_t, drawdown = res
-            status = get_status(pct_y)
-            advice = get_advice(drawdown)
+for symbol, name, code in assets:
+    res = get_data(symbol)
+    if res:
+        price, pct_y, pct_t, drawdown = res
+        port_value = my_portfolio_value.get(symbol, 0)
+        port_weight = port_value / total_portfolio
 
-            message += (
-                f"📌 {name}\n"
-                f"{code}\n"
-                f"สถานะ: {status}\n"
-                f"ราคา: {price:.2f}\n"
-                f"เทียบเมื่อวาน: {pct_y:+.2f}%\n"
-                f"วันนี้: {pct_t:+.2f}%\n"
-                f"ย่อจากจุดสูงสุด: {drawdown:.2f}%\n"
-                f"คำแนะนำ: {advice}\n\n"
-            )
+        score = score_asset(drawdown, pct_t, port_weight)
 
-    message += "💼 พอร์ตของฉัน\n"
-    for symbol, info in my_portfolio.items():
-        if info["type"] == "api":
-            res = get_data(symbol)
-            if res:
-                price, pct_y, pct_t, drawdown = res
-                status = get_status(pct_y)
-                advice = get_advice(drawdown)
-
-                message += (
-                    f"📌 {info['name']}\n"
-                    f"{symbol}\n"
-                    f"สถานะ: {status}\n"
-                    f"ราคา: {price:.2f}\n"
-                    f"เทียบเมื่อวาน: {pct_y:+.2f}%\n"
-                    f"วันนี้: {pct_t:+.2f}%\n"
-                    f"ย่อจากจุดสูงสุด: {drawdown:.2f}%\n"
-                    f"คำแนะนำ: {advice}\n\n"
-                )
-        else:
-            nav = thai_funds.get(symbol, None)
-            message += (
-                f"📌 {info['name']}\n"
-                f"{symbol}\n"
-                f"สถานะ: ⚪ กองทุนไทย\n"
-                f"NAV ล่าสุด: {nav}\n"
-                f"คำแนะนำ: ใช้เพื่อ DCA ระยะยาว\n\n"
-            )
+        market.append({
+            "symbol": symbol,
+            "name": name,
+            "code": code,
+            "price": price,
+            "pct_y": pct_y,
+            "pct_t": pct_t,
+            "drawdown": drawdown,
+            "score": score
+        })
 
 # =========================
-# MODE: DCA (12:30)
+# เลือก Top 3
 # =========================
-elif MODE == "dca":
-    now = datetime.now().strftime("%d/%m/%Y 12:30")
-    market = []
-    for symbol, name, code in market_assets:
-        res = get_data(symbol)
-        if res:
-            price, pct_y, pct_t, drawdown = res
-            market.append({
-                "symbol": symbol,
-                "name": name,
-                "code": code,
-                "price": price,
-                "pct_y": pct_y,
-                "pct_t": pct_t,
-                "drawdown": drawdown,
-                "status": get_status(pct_y),
-            })
+top3 = sorted(market, key=lambda x: x["score"], reverse=True)[:3]
+total_score = sum(x["score"] for x in top3)
 
-    best = sorted(market, key=lambda x: x["drawdown"])[0]
-
-    message = (
-        f"🤖 DCA วันนี้ (Hybrid)\n{now}\n\n"
-        f"🎯 ตัวที่ควรลงมากที่สุด:\n"
-        f"{best['name']} ({best['code']})\n\n"
-        f"สถานะ: {best['status']}\n"
-        f"ราคา: {best['price']:.2f}\n"
-        f"เทียบเมื่อวาน: {best['pct_y']:+.2f}%\n"
-        f"วันนี้: {best['pct_t']:+.2f}%\n"
-        f"ย่อจากจุดสูงสุด: {best['drawdown']:.2f}%\n\n"
-        f"💰 ลง {best['name']} 100 บาท\n"
+# =========================
+# สร้างข้อความให้ AI
+# =========================
+top3_text = ""
+for i, x in enumerate(top3, 1):
+    top3_text += (
+        f"#{i} {x['name']} ({x['code']}) | "
+        f"ราคา {x['price']:.2f} | "
+        f"เมื่อวาน {x['pct_y']:+.2f}% | "
+        f"วันนี้ {x['pct_t']:+.2f}% | "
+        f"ย่อจากจุดสูงสุด {x['drawdown']:.2f}%\n"
     )
+
+budget = 500  # เปลี่ยนเป็น 100 / 300 / 500 / 1000 ได้
+budget_text = ""
+for x in top3:
+    portion = budget * x["score"] / total_score
+    budget_text += f"- {x['name']}: {portion:.0f} บาท\n"
+
+portfolio_text = ""
+for k, v in my_portfolio_value.items():
+    portfolio_text += f"- {k}: {v} บาท\n"
+
+market_text = ""
+for x in market:
+    market_text += (
+        f"{x['name']} | ราคา {x['price']:.2f} | "
+        f"วันนี้ {x['pct_t']:+.2f}% | "
+        f"ย่อจากจุดสูงสุด {x['drawdown']:.2f}%\n"
+    )
+
+# =========================
+# เรียก AI
+# =========================
+def ai_analyze():
+    prompt = f"""
+คุณเป็นผู้ช่วยวิเคราะห์การลงทุนส่วนตัว
+
+ข้อมูลตลาด:
+{market_text}
+
+Top 3 วันนี้:
+{top3_text}
+
+งบประมาณวันนี้:
+{budget_text}
+
+พอร์ตของฉัน:
+{portfolio_text}
+
+ช่วยเขียนข้อความสำหรับ Telegram:
+1. บอกว่าวันนี้ควรลงอะไร
+2. บอกว่างบควรแบ่งอย่างไร
+3. สรุปภาพรวมตลาด + คำเตือน
+
+เขียนเป็นภาษาไทย
+โทนเหมือนนักวิเคราะห์การเงิน
+สั้น กระชับ ใช้งานได้จริง
+"""
+    response = openai.ChatCompletion.create(
+        model="gpt-4.1-mini",
+        messages=[{"role": "user", "content": prompt}]
+    )
+    return response["choices"][0]["message"]["content"]
+
+ai_text = ai_analyze()
 
 # =========================
 # ส่ง Telegram
 # =========================
+now = datetime.now().strftime("%d/%m/%Y 12:30")
+message = f"""🤖 DCA วันนี้ (Top 3)
+{now}
+
+{ai_text}
+"""
+
 url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
 requests.post(
     url,
