@@ -10,14 +10,22 @@ BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHAT_ID = os.environ["CHAT_ID"]
 
 # =========================
+# กองทุนไทย (ใส่มือวันละครั้ง)
+# =========================
+thai_funds = {
+    "B-INNOTECH": 11.52,
+    "K-US500X": 1.50
+}
+
+# =========================
 # พอร์ตของคุณ
 # =========================
 my_portfolio = {
     "GLD": {"name": "SPDR Gold Trust", "type": "api"},
     "QCOM": {"name": "Qualcomm", "type": "api"},
     "BUG": {"name": "Global X Cybersecurity ETF", "type": "api"},
-    "B-INNOTECH": {"name": "B-INNOTECH HRMF", "type": "manual"},
-    "K-US500X": {"name": "K-US500X-A", "type": "manual"}
+    "B-INNOTECH": {"name": "B-INNOTECH HRMF", "type": "thai"},
+    "K-US500X": {"name": "K-US500X-A", "type": "thai"}
 }
 
 # =========================
@@ -72,7 +80,7 @@ def get_advice(drawdown):
 # =========================
 if MODE == "market":
     now = datetime.now().strftime("%H:%M")
-    message = f"📊 Market Update + My Portfolio ({now})\n\n"
+    message = f"📊 Market Update + My Portfolio (Hybrid)\n{now}\n\n"
 
     message += "🌍 ตลาดรวม\n"
     for symbol, name, code in market_assets:
@@ -113,17 +121,17 @@ if MODE == "market":
                     f"คำแนะนำ: {advice}\n\n"
                 )
         else:
+            nav = thai_funds.get(symbol, None)
             message += (
                 f"📌 {info['name']}\n"
                 f"{symbol}\n"
                 f"สถานะ: ⚪ กองทุนไทย\n"
-                f"ราคา: (ไม่มี API realtime)\n"
-                f"คำแนะนำ: ดูจากแอปโบรกเกอร์\n\n"
+                f"NAV ล่าสุด: {nav}\n"
+                f"คำแนะนำ: ใช้เพื่อ DCA ระยะยาว\n\n"
             )
 
 # =========================
-# MODE: DCA
-# (เหมือนเดิมจากเวอร์ชันก่อน)
+# MODE: DCA (12:30)
 # =========================
 elif MODE == "dca":
     now = datetime.now().strftime("%d/%m/%Y 12:30")
@@ -146,7 +154,7 @@ elif MODE == "dca":
     best = sorted(market, key=lambda x: x["drawdown"])[0]
 
     message = (
-        f"🤖 DCA วันนี้ ({now})\n\n"
+        f"🤖 DCA วันนี้ (Hybrid)\n{now}\n\n"
         f"🎯 ตัวที่ควรลงมากที่สุด:\n"
         f"{best['name']} ({best['code']})\n\n"
         f"สถานะ: {best['status']}\n"
