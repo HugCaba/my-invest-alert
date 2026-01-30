@@ -2,17 +2,17 @@ import os
 import requests
 import yfinance as yf
 from datetime import datetime
-import openai
+from openai import OpenAI
 
 # =========================
 # Secrets
 # =========================
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHAT_ID = os.environ["CHAT_ID"]
-openai.api_key = os.environ["OPENAI_API_KEY"]
+client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 
 # =========================
-# พอร์ตของคุณ (จากรูปจริง)
+# พอร์ตของคุณ (จริง)
 # =========================
 my_portfolio_value = {
     "GLD": 31589,
@@ -32,7 +32,6 @@ assets = [
     ("GLD", "SPDR Gold Trust", "GLD"),
 ]
 
-# =========================
 def get_data(symbol):
     data = yf.download(symbol, period="2d", interval="1h", progress=False)
     if len(data) < 2:
@@ -72,7 +71,6 @@ for symbol, name, code in assets:
         price, pct_y, pct_t, drawdown = res
         port_value = my_portfolio_value.get(symbol, 0)
         port_weight = port_value / total_portfolio
-
         score = score_asset(drawdown, pct_t, port_weight)
 
         market.append({
@@ -86,15 +84,9 @@ for symbol, name, code in assets:
             "score": score
         })
 
-# =========================
-# เลือก Top 3
-# =========================
 top3 = sorted(market, key=lambda x: x["score"], reverse=True)[:3]
 total_score = sum(x["score"] for x in top3)
 
-# =========================
-# สร้างข้อความให้ AI
-# =========================
 top3_text = ""
 for i, x in enumerate(top3, 1):
     top3_text += (
@@ -105,7 +97,7 @@ for i, x in enumerate(top3, 1):
         f"ย่อจากจุดสูงสุด {x['drawdown']:.2f}%\n"
     )
 
-budget = 500  # เปลี่ยนเป็น 100 / 300 / 500 / 1000 ได้
+budget = 500
 budget_text = ""
 for x in top3:
     portion = budget * x["score"] / total_score
@@ -124,7 +116,7 @@ for x in market:
     )
 
 # =========================
-# เรียก AI
+# AI ใหม่ (ไม่พังแล้ว)
 # =========================
 def ai_analyze():
     prompt = f"""
@@ -146,22 +138,15 @@ Top 3 วันนี้:
 1. บอกว่าวันนี้ควรลงอะไร
 2. บอกว่างบควรแบ่งอย่างไร
 3. สรุปภาพรวมตลาด + คำเตือน
-
-เขียนเป็นภาษาไทย
-โทนเหมือนนักวิเคราะห์การเงิน
-สั้น กระชับ ใช้งานได้จริง
 """
-    response = openai.ChatCompletion.create(
+    response = client.responses.create(
         model="gpt-4.1-mini",
-        messages=[{"role": "user", "content": prompt}]
+        input=prompt
     )
-    return response["choices"][0]["message"]["content"]
+    return response.output_text
 
 ai_text = ai_analyze()
 
-# =========================
-# ส่ง Telegram
-# =========================
 now = datetime.now().strftime("%d/%m/%Y 12:30")
 message = f"""🤖 DCA วันนี้ (Top 3)
 {now}
