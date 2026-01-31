@@ -25,23 +25,23 @@ def send_telegram(msg):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     requests.post(url, data={"chat_id": CHAT_ID, "text": msg})
 
+def to_float(x):
+    if hasattr(x, "values"):
+        return float(x.values[0])
+    else:
+        return float(x)
+
 def get_price(symbol):
     data = yf.download(symbol, period="2d", progress=False)
     if data is None or len(data) < 2:
         return None
 
-    close_today = data["Close"].iloc[-1]
-    close_yesterday = data["Close"].iloc[-2]
+    close_today = to_float(data["Close"].iloc[-1])
+    close_yesterday = to_float(data["Close"].iloc[-2])
+    open_today = to_float(data["Open"].iloc[-1])
 
-    if hasattr(close_today, "values"):
-        today = float(close_today.values[0])
-        yesterday = float(close_yesterday.values[0])
-    else:
-        today = float(close_today)
-        yesterday = float(close_yesterday)
-
-    pct_today = (today - yesterday) / yesterday * 100
-    return today, pct_today
+    pct_today = (close_today - close_yesterday) / close_yesterday * 100
+    return close_today, close_yesterday, open_today, pct_today
 
 def get_status(pct):
     if pct > 1:
@@ -79,18 +79,32 @@ def run_market_mode():
     for name, symbol in market_assets.items():
         res = get_price(symbol)
         if res:
-            price, pct_today = res
+            price, yesterday, open_today, pct_today = res
             status = get_status(pct_today)
             action = get_action(pct_today)
-            msg += f"{name} | {price:.2f} | วันนี้ {pct_today:.2f}% | {status} | แนะนำ: {action}\n"
+            msg += (
+                f"{name} | {price:.2f} | "
+                f"วันนี้เริ่ม {open_today:.2f} | "
+                f"วันนี้ {pct_today:.2f}% | "
+                f"เมื่อวาน {yesterday:.2f} | "
+                f"{status} | แนะนำ: {action}\n"
+            )
 
     msg += "\n📊 Portfolio Monitor\n"
+
     for name, symbol in my_portfolio.items():
         res = get_price(symbol)
         if res:
-            price, pct_today = res
+            price, yesterday, open_today, pct_today = res
             status = get_status(pct_today)
-            msg += f"{name} | {price:.2f} | วันนี้ {pct_today:.2f}% | {status}\n"
+            action = get_action(pct_today)
+            msg += (
+                f"{name} | {price:.2f} | "
+                f"วันนี้เริ่ม {open_today:.2f} | "
+                f"วันนี้ {pct_today:.2f}% | "
+                f"เมื่อวาน {yesterday:.2f} | "
+                f"{status} | แนะนำ: {action}\n"
+            )
 
     send_telegram(msg)
 
@@ -112,8 +126,8 @@ def run_dca_mode():
     for name, symbol in assets.items():
         res = get_price(symbol)
         if res:
-            price, pct_today = res
-            market_data += f"{name}: {pct_today:.2f}%\n"
+            price, yesterday, open_today, pct_today = res
+            market_data += f"{name}: วันนี้ {pct_today:.2f}%\n"
 
     portfolio_text = ""
     for name in my_portfolio.keys():
